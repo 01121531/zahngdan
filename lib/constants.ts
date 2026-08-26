@@ -1,6 +1,7 @@
 export const APP_NAME = '轻账';
 export const APP_DESCRIPTION = '简洁、私密的个人收支与票据管理工具。';
-export const INITIAL_AUTH = { salt: 'sMD7dJYC1pmNInhYiEm7Qg==', hash: 'ZD5Y90ErHGPTxAAUTSCIJj1xoMxCK1D4PpqyABaGBn0=', iterations: 310_000 };
+export const PASSWORD_ITERATIONS = 100_000;
+export const INITIAL_AUTH = { salt: 'sMD7dJYC1pmNInhYiEm7Qg==', hash: 'p+Zu5EA2Y7nIT0yhIavEe0jWaKW8SBESHncga/ZFUH4=', iterations: PASSWORD_ITERATIONS };
 export const PAYMENT_METHODS = ['微信', '支付宝', '银行卡', '信用卡', '现金', '其他'] as const;
 export const MAX_ATTACHMENTS = 10;
 export const MAX_FILE_BYTES = 10 * 1024 * 1024;

@@ -26,6 +26,8 @@ export async function ensureDatabase() {
   const now = new Date().toISOString();
   await db.prepare(`INSERT OR IGNORE INTO auth_config (id, password_salt, password_hash, password_iterations, session_secret, session_version, updated_at) VALUES (1, ?, ?, ?, NULL, 1, ?)`)
     .bind(INITIAL_AUTH.salt, INITIAL_AUTH.hash, INITIAL_AUTH.iterations, now).run();
+  await db.prepare(`UPDATE auth_config SET password_salt = ?, password_hash = ?, password_iterations = ?, session_version = session_version + 1, updated_at = ? WHERE id = 1 AND password_iterations > ?`)
+    .bind(INITIAL_AUTH.salt, INITIAL_AUTH.hash, INITIAL_AUTH.iterations, now, INITIAL_AUTH.iterations).run();
   const categoryCount = await db.prepare('SELECT COUNT(*) AS count FROM categories').first<{ count: number }>();
   if (!categoryCount?.count) await db.batch(CATEGORY_SEEDS.map(([id, type, name, icon, color, order]) => db.prepare(`INSERT INTO categories (id, type, name, icon, color, is_builtin, is_hidden, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, 0, ?, ?, ?)`).bind(id, type, name, icon, color, order, now, now)));
   const config = await db.prepare('SELECT session_secret FROM auth_config WHERE id = 1').first<{ session_secret: string | null }>();

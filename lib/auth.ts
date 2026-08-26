@@ -1,4 +1,5 @@
 import { ensureDatabase, getD1 } from '@/lib/database';
+import { PASSWORD_ITERATIONS } from '@/lib/constants';
 const COOKIE_NAME = 'lightledger_session'; const SESSION_MS = 30 * 86400000;
 function bytesToBase64(bytes: Uint8Array) { let binary = ''; bytes.forEach((byte) => { binary += String.fromCharCode(byte); }); return btoa(binary); }
 function fromBase64(value: string) { const binary = atob(value); return Uint8Array.from(binary, (char) => char.charCodeAt(0)); }
@@ -14,4 +15,4 @@ export async function isAuthenticated(request: Request) { const cookie = request
 export async function requireAuth(request: Request) { return await isAuthenticated(request) ? null : Response.json({ error: '请先登录' }, { status: 401 }); }
 export function verifySameOrigin(request: Request) { const origin = request.headers.get('origin'); return !origin || origin === new URL(request.url).origin; }
 export async function sourceKey(request: Request) { const config = await authConfig(); const source = request.headers.get('cf-connecting-ip') || request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'local'; return hmac(source, config?.session_secret || 'light-ledger'); }
-export async function changePassword(currentPassword: string, nextPassword: string) { if (!await verifyPassword(currentPassword)) return false; const bytes = new Uint8Array(16); crypto.getRandomValues(bytes); const salt = bytesToBase64(bytes); const iterations = 310_000; const hash = await passwordHash(nextPassword, salt, iterations); await getD1().prepare('UPDATE auth_config SET password_salt = ?, password_hash = ?, password_iterations = ?, session_version = session_version + 1, updated_at = ? WHERE id = 1').bind(salt, hash, iterations, new Date().toISOString()).run(); return true; }
+export async function changePassword(currentPassword: string, nextPassword: string) { if (!await verifyPassword(currentPassword)) return false; const bytes = new Uint8Array(16); crypto.getRandomValues(bytes); const salt = bytesToBase64(bytes); const hash = await passwordHash(nextPassword, salt, PASSWORD_ITERATIONS); await getD1().prepare('UPDATE auth_config SET password_salt = ?, password_hash = ?, password_iterations = ?, session_version = session_version + 1, updated_at = ? WHERE id = 1').bind(salt, hash, PASSWORD_ITERATIONS, new Date().toISOString()).run(); return true; }
