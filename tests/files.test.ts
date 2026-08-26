@@ -1,0 +1,2 @@
+import { describe, expect, it } from 'vitest'; import { safeDownloadName, validateFile } from '@/lib/files';
+describe('附件校验', () => { it('接受允许的TXT文件', async () => { const file = new File(['receipt'], 'receipt.txt', { type: 'text/plain' }); expect(await validateFile(file)).toBeNull(); }); it('拒绝伪造的PDF', async () => { const file = new File(['not a pdf'], 'receipt.pdf', { type: 'application/pdf' }); expect(await validateFile(file)).toBe('文件内容与格式不匹配'); }); it('清理下载文件名中的危险字符', () => { expect(safeDownloadName('a/../b\r\n.txt')).not.toMatch(/[\/\r\n]/); }); });

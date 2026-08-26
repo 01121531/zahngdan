@@ -1,0 +1,9 @@
+import { requireAuth, verifySameOrigin } from '@/lib/auth';
+import { ensureDatabase, getD1 } from '@/lib/database';
+import { jsonError, readJson } from '@/lib/http';
+import { z } from 'zod';
+
+const categoryInput = z.object({ type: z.enum(['expense', 'income']), name: z.string().trim().min(1).max(20), icon: z.string().trim().min(1).max(40).default('Circle'), color: z.string().regex(/^#[0-9a-fA-F]{6}$/) });
+
+export async function GET(request: Request) { const unauthorized = await requireAuth(request); if (unauthorized) return unauthorized; await ensureDatabase(); const result = await getD1().prepare('SELECT id, type, name, icon, color, is_builtin AS isBuiltin, is_hidden AS isHidden, sort_order AS sortOrder FROM categories ORDER BY type, sort_order, name').all(); return Response.json({ categories: result.results }); }
+export async function POST(request: Request) { const unauthorized = await requireAuth(request); if (unauthorized) return unauthorized; if (!verifySameOrigin(request)) return jsonError('请求来源不可信', 403); const parsed = categoryInput.safeParse(await readJson(request)); if (!parsed.success) return jsonError('分类信息不完整', 400, parsed.error.flatten()); await ensureDatabase(); const id = crypto.randomUUID(); const now = new Date().toISOString(); const order = await getD1().prepare('SELECT COALESCE(MAX(sort_order), 0) + 10 AS nextOrder FROM categories WHERE type = ?').bind(parsed.data.type).first<{ nextOrder: number }>(); await getD1().prepare('INSERT INTO categories (id, type, name, icon, color, is_builtin, is_hidden, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?, ?)').bind(id, parsed.data.type, parsed.data.name, parsed.data.icon, parsed.data.color, order?.nextOrder || 10, now, now).run(); return Response.json({ id }, { status: 201 }); }
