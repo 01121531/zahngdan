@@ -4,7 +4,7 @@ export type Attachment = { id: string; originalName: string; contentType: string
 
 export async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, { ...init, headers: { ...(init?.body instanceof FormData ? {} : { 'content-type': 'application/json' }), ...init?.headers } });
-  if (response.status === 401 && !url.includes('/auth/')) { window.location.assign(`/login?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`); throw new Error('请先登录'); }
+  if (response.status === 401 && !url.includes('/auth/')) { window.location.replace(`/login?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`); throw new Error('请先登录'); }
   const data = await response.json().catch(() => ({})) as { error?: string };
   if (!response.ok) throw new Error(data.error || '操作没有完成，请稍后重试');
   return data as T;
