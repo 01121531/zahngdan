@@ -1,18 +1,15 @@
-import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
-import { timingSafeEqual } from 'node:crypto';
-import { readFile, rename, writeFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 
-const host = process.env.QINGZHANG_UPDATE_HOST || '127.0.0.1';
-const port = Number.parseInt(process.env.QINGZHANG_UPDATE_PORT || '8871', 10);
-const token = process.env.QINGZHANG_UPDATE_TOKEN || '';
 const script = process.env.QINGZHANG_UPDATE_SCRIPT || '/usr/local/sbin/qingzhang-update';
-const statusFile = process.env.QINGZHANG_UPDATE_STATUS || '/var/lib/qingzhang/update-status.json';
+const databaseDirectory = process.env.QINGZHANG_D1_DIR || '/var/lib/qingzhang/v3/d1/miniflare-D1DatabaseObject';
 const versionFile = process.env.QINGZHANG_VERSION_FILE || '/opt/qingzhang/public/version.json';
-
-if (token.length < 32) throw new Error('QINGZHANG_UPDATE_TOKEN must contain at least 32 characters');
+const pollIntervalMs = 2_000;
 
 let child = null;
+let database = null;
 
 async function currentVersion() {
   try {
@@ -22,97 +19,58 @@ async function currentVersion() {
   }
 }
 
-async function readStatus() {
-  try {
-    return JSON.parse(await readFile(statusFile, 'utf8'));
-  } catch {
-    return { state: 'idle', message: '可以检查并安装新版本', currentVersion: await currentVersion() };
-  }
+async function findDatabase() {
+  const entries = await readdir(databaseDirectory);
+  const filename = entries.find((entry) => entry.endsWith('.sqlite') && entry !== 'metadata.sqlite');
+  if (!filename) throw new Error('Qingzhang D1 database file was not found');
+  return join(databaseDirectory, filename);
 }
 
-async function writeStatus(status) {
-  const temporary = `${statusFile}.tmp`;
-  await writeFile(temporary, `${JSON.stringify(status)}\n`, { mode: 0o600 });
-  await rename(temporary, statusFile);
+async function openDatabase() {
+  if (database) return database;
+  database = new DatabaseSync(await findDatabase());
+  database.exec('PRAGMA busy_timeout = 5000');
+  database.exec(`CREATE TABLE IF NOT EXISTS update_state (id INTEGER PRIMARY KEY NOT NULL CHECK (id = 1), state TEXT NOT NULL, message TEXT NOT NULL, current_version TEXT, request_id TEXT, requested_at TEXT, started_at TEXT, finished_at TEXT, heartbeat_at TEXT)`);
+  database.prepare(`INSERT OR IGNORE INTO update_state (id, state, message, current_version, request_id, requested_at, started_at, finished_at, heartbeat_at) VALUES (1, 'idle', '可以检查并安装新版本', NULL, NULL, NULL, NULL, NULL, NULL)`).run();
+  database.prepare(`UPDATE update_state SET state = 'failed', message = '更新器重启，上一次更新未完成', finished_at = ? WHERE id = 1 AND state = 'running'`).run(new Date().toISOString());
+  return database;
 }
 
-function authorized(request) {
-  const header = request.headers.authorization || '';
-  const supplied = header.startsWith('Bearer ') ? header.slice(7) : '';
-  const expectedBuffer = Buffer.from(token);
-  const suppliedBuffer = Buffer.from(supplied);
-  return expectedBuffer.length === suppliedBuffer.length && timingSafeEqual(expectedBuffer, suppliedBuffer);
+async function finishUpdate(startedAt, succeeded, code, signal) {
+  const db = await openDatabase();
+  db.prepare(`UPDATE update_state SET state = ?, message = ?, current_version = ?, finished_at = ? WHERE id = 1`).run(
+    succeeded ? 'succeeded' : 'failed',
+    succeeded ? '更新完成，服务已恢复运行' : `更新失败，服务器已自动恢复原版本${code === null ? `（${signal || 'unknown'}）` : ''}`,
+    await currentVersion(),
+    new Date().toISOString(),
+  );
+  child = null;
 }
 
-function send(response, statusCode, body) {
-  response.writeHead(statusCode, {
-    'content-type': 'application/json; charset=utf-8',
-    'cache-control': 'no-store',
-  });
-  response.end(`${JSON.stringify(body)}\n`);
-}
-
-async function startUpdate() {
+async function startUpdate(requestId) {
+  const db = await openDatabase();
   const startedAt = new Date().toISOString();
-  await writeStatus({
-    state: 'running',
-    message: '正在下载、验证并安装新版本…',
-    currentVersion: await currentVersion(),
-    startedAt,
-    finishedAt: null,
-  });
+  const claimed = db.prepare(`UPDATE update_state SET state = 'running', message = '正在下载、验证并安装新版本…', current_version = ?, started_at = ?, finished_at = NULL WHERE id = 1 AND state = 'queued' AND request_id = ?`).run(await currentVersion(), startedAt, requestId);
+  if (!claimed.changes) return;
 
-  child = spawn(script, [], { stdio: 'inherit' });
-  child.once('error', async (error) => {
-    child = null;
-    await writeStatus({
-      state: 'failed',
-      message: `无法启动更新：${error.message}`,
-      currentVersion: await currentVersion(),
-      startedAt,
-      finishedAt: new Date().toISOString(),
-    });
-  });
-  child.once('exit', async (code, signal) => {
-    child = null;
-    const succeeded = code === 0;
-    await writeStatus({
-      state: succeeded ? 'succeeded' : 'failed',
-      message: succeeded ? '更新完成，服务已恢复运行' : '更新失败，服务器已自动恢复原版本',
-      currentVersion: await currentVersion(),
-      startedAt,
-      finishedAt: new Date().toISOString(),
-      ...(succeeded ? {} : { failureCode: code, failureSignal: signal }),
-    });
-  });
+  child = spawn('/usr/bin/sudo', ['-n', script], { stdio: 'inherit' });
+  child.once('error', async () => finishUpdate(startedAt, false, null, 'spawn-error'));
+  child.once('exit', async (code, signal) => finishUpdate(startedAt, code === 0, code, signal));
 }
 
-const server = createServer(async (request, response) => {
-  const remote = request.socket.remoteAddress || '';
-  const localAddresses = ['127.0.0.1', '::1', '::ffff:127.0.0.1', host, `::ffff:${host}`];
-  if (!localAddresses.includes(remote) || !authorized(request)) {
-    send(response, 403, { error: 'forbidden' });
-    return;
+async function tick() {
+  try {
+    const db = await openDatabase();
+    db.prepare('UPDATE update_state SET heartbeat_at = ?, current_version = COALESCE(current_version, ?) WHERE id = 1').run(new Date().toISOString(), await currentVersion());
+    const row = db.prepare('SELECT state, request_id AS requestId FROM update_state WHERE id = 1').get();
+    if (!child && row?.state === 'queued' && row.requestId) await startUpdate(row.requestId);
+  } catch (error) {
+    process.stderr.write(`Updater poll failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    database?.close();
+    database = null;
   }
+}
 
-  if (request.method === 'GET' && request.url === '/status') {
-    send(response, 200, await readStatus());
-    return;
-  }
-
-  if (request.method === 'POST' && request.url === '/update') {
-    if (child) {
-      send(response, 409, { ...(await readStatus()), error: '更新正在进行中' });
-      return;
-    }
-    await startUpdate();
-    send(response, 202, await readStatus());
-    return;
-  }
-
-  send(response, 404, { error: 'not found' });
-});
-
-server.listen(port, host, () => {
-  process.stdout.write(`Qingzhang updater listening on http://${host}:${port}\n`);
-});
+await tick();
+setInterval(() => void tick(), pollIntervalMs);
+process.stdout.write('Qingzhang database-queue updater started\n');

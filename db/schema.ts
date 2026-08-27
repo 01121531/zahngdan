@@ -27,3 +27,8 @@ export const loginAttempts = sqliteTable('login_attempts', {
 });
 
 export const appMeta = sqliteTable('app_meta', { key: text('key').primaryKey(), value: text('value').notNull() });
+
+export const updateState = sqliteTable('update_state', {
+  id: integer('id').primaryKey(), state: text('state', { enum: ['idle', 'queued', 'running', 'succeeded', 'failed'] }).notNull(), message: text('message').notNull(),
+  currentVersion: text('current_version'), requestId: text('request_id'), requestedAt: text('requested_at'), startedAt: text('started_at'), finishedAt: text('finished_at'), heartbeatAt: text('heartbeat_at'),
+});

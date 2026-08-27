@@ -18,12 +18,14 @@ export async function ensureDatabase() {
     `CREATE TABLE IF NOT EXISTS auth_config (id INTEGER PRIMARY KEY NOT NULL, password_salt TEXT NOT NULL, password_hash TEXT NOT NULL, password_iterations INTEGER NOT NULL, session_secret TEXT, session_version INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS login_attempts (source_hash TEXT PRIMARY KEY NOT NULL, failure_count INTEGER NOT NULL DEFAULT 0, window_started_at TEXT NOT NULL, locked_until TEXT)`,
     `CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS update_state (id INTEGER PRIMARY KEY NOT NULL CHECK (id = 1), state TEXT NOT NULL, message TEXT NOT NULL, current_version TEXT, request_id TEXT, requested_at TEXT, started_at TEXT, finished_at TEXT, heartbeat_at TEXT)`,
     `CREATE INDEX IF NOT EXISTS idx_categories_type_hidden_order ON categories(type, is_hidden, sort_order)`, `CREATE INDEX IF NOT EXISTS idx_transactions_deleted_occurred ON transactions(deleted_at, occurred_at)`,
     `CREATE INDEX IF NOT EXISTS idx_transactions_category ON transactions(category_id)`, `CREATE INDEX IF NOT EXISTS idx_transactions_type_occurred ON transactions(type, occurred_at)`,
     `CREATE INDEX IF NOT EXISTS idx_attachments_transaction_deleted ON attachments(transaction_id, deleted_at)`, `CREATE INDEX IF NOT EXISTS idx_attachments_deleted ON attachments(deleted_at)`,
   ];
   await db.batch(statements.map((sql) => db.prepare(sql)));
   const now = new Date().toISOString();
+  await db.prepare(`INSERT OR IGNORE INTO update_state (id, state, message, current_version, request_id, requested_at, started_at, finished_at, heartbeat_at) VALUES (1, 'idle', '可以检查并安装新版本', NULL, NULL, NULL, NULL, NULL, NULL)`).run();
   await db.prepare(`INSERT OR IGNORE INTO auth_config (id, password_salt, password_hash, password_iterations, session_secret, session_version, updated_at) VALUES (1, ?, ?, ?, NULL, 1, ?)`)
     .bind(INITIAL_AUTH.salt, INITIAL_AUTH.hash, INITIAL_AUTH.iterations, now).run();
   await db.prepare(`UPDATE auth_config SET password_salt = ?, password_hash = ?, password_iterations = ?, session_version = session_version + 1, updated_at = ? WHERE id = 1 AND password_iterations > ?`)

@@ -17,7 +17,7 @@ type VersionInfo = {
 
 type UpdateStatus = {
   supported: boolean;
-  state: 'idle' | 'running' | 'succeeded' | 'failed' | 'unsupported';
+  state: 'idle' | 'queued' | 'running' | 'succeeded' | 'failed' | 'unsupported';
   message?: string;
   currentVersion?: string | null;
   startedAt?: string | null;
@@ -49,7 +49,7 @@ export function OnlineUpdate() {
         loadStatus(),
       ]);
       setVersion(nextVersion);
-      if (nextStatus.state === 'running') setUpdating(true);
+      if (nextStatus.state === 'queued' || nextStatus.state === 'running') setUpdating(true);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '检查更新失败');
     } finally {
@@ -97,7 +97,7 @@ export function OnlineUpdate() {
   };
 
   const statusText = (() => {
-    if (updating || status?.state === 'running') return status?.message || '正在下载、验证并安装新版本…';
+    if (updating || status?.state === 'queued' || status?.state === 'running') return status?.message || '正在下载、验证并安装新版本…';
     if (status?.state === 'succeeded') return status.message || '更新完成，正在刷新页面…';
     if (!version) return '正在检查当前版本…';
     if (!version.latestVersion) return `当前 v${version.currentVersion}，暂时无法连接更新源`;

@@ -7,60 +7,42 @@ if [[ "$(id -u)" -ne 0 ]]; then
 fi
 
 readonly SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly TOKEN_FILE='/etc/qingzhang-updater.env'
-readonly WORKER_ENV_FILE='/etc/qingzhang-worker.env'
 readonly UPDATER_UNIT='/etc/systemd/system/qingzhang-updater.service'
 readonly APP_DROPIN_DIR='/etc/systemd/system/qingzhang.service.d'
 readonly APP_DROPIN="$APP_DROPIN_DIR/online-update.conf"
-readonly UPDATE_HOST="${QINGZHANG_UPDATE_HOST_OVERRIDE:-10.254.254.1}"
+readonly SUDOERS_FILE='/etc/sudoers.d/qingzhang-updater'
 
 install -d -m 0755 /usr/local/lib/qingzhang-updater
 install -m 0755 "$SOURCE_DIR/qingzhang-updater.mjs" /usr/local/lib/qingzhang-updater/server.mjs
 install -m 0755 "$SOURCE_DIR/qingzhang-update.sh" /usr/local/sbin/qingzhang-update
-install -m 0755 "$SOURCE_DIR/qingzhang-update-firewall.sh" /usr/local/sbin/qingzhang-update-firewall
 
-if [[ -f "$TOKEN_FILE" ]]; then
-  update_token="$(sed -n 's/^QINGZHANG_UPDATE_TOKEN=//p' "$TOKEN_FILE" | head -n 1)"
-else
-  update_token="$(openssl rand -hex 32)"
-fi
-if [[ ${#update_token} -lt 32 ]]; then
-  echo 'Existing update token is invalid' >&2
-  exit 1
-fi
-
-umask 0077
-printf 'QINGZHANG_UPDATE_TOKEN=%s\nQINGZHANG_UPDATE_HOST=%s\nQINGZHANG_UPDATE_SCRIPT=/usr/local/sbin/qingzhang-update\nQINGZHANG_UPDATE_STATUS=/var/lib/qingzhang/update-status.json\n' "$update_token" "$UPDATE_HOST" > "$TOKEN_FILE"
-printf 'QINGZHANG_UPDATE_URL=http://%s:8871\nQINGZHANG_UPDATE_TOKEN=%s\n' "$UPDATE_HOST" "$update_token" > "$WORKER_ENV_FILE"
-chown root:root "$TOKEN_FILE"
-chown root:qingzhang "$WORKER_ENV_FILE"
-chmod 0600 "$TOKEN_FILE"
-chmod 0640 "$WORKER_ENV_FILE"
+printf '%s\n' 'qingzhang ALL=(root) NOPASSWD: /usr/local/sbin/qingzhang-update' > "$SUDOERS_FILE"
+chmod 0440 "$SUDOERS_FILE"
+visudo -cf "$SUDOERS_FILE" >/dev/null
 
 install -d -m 0755 "$APP_DROPIN_DIR"
 printf '%s\n' \
   '[Service]' \
   'ExecStart=' \
-  'ExecStart=/opt/qingzhang/node_modules/.bin/wrangler dev --config /opt/qingzhang/dist/server/wrangler.json --ip 0.0.0.0 --port 8866 --persist-to /var/lib/qingzhang --show-interactive-dev-session=false --env-file /etc/qingzhang-worker.env' \
+  'ExecStart=/opt/qingzhang/node_modules/.bin/wrangler dev --config /opt/qingzhang/dist/server/wrangler.json --ip 0.0.0.0 --port 8866 --persist-to /var/lib/qingzhang --show-interactive-dev-session=false' \
   > "$APP_DROPIN"
 
 printf '%s\n' \
   '[Unit]' \
-  'Description=Qingzhang authenticated local update service' \
-  'After=network-online.target' \
-  'Wants=network-online.target' \
+  'Description=Qingzhang database-queue update service' \
+  'After=qingzhang.service' \
+  'Wants=qingzhang.service' \
   '' \
   '[Service]' \
   'Type=simple' \
-  'User=root' \
-  'Group=root' \
-  'EnvironmentFile=/etc/qingzhang-updater.env' \
-  'ExecStartPre=/usr/local/sbin/qingzhang-update-firewall' \
-  'ExecStartPre=-/usr/sbin/ip address add 10.254.254.1/32 dev lo' \
-  'ExecStart=/usr/bin/node /usr/local/lib/qingzhang-updater/server.mjs' \
+  'User=qingzhang' \
+  'Group=qingzhang' \
+  'Environment=HOME=/var/lib/qingzhang' \
+  'Environment=QINGZHANG_UPDATE_SCRIPT=/usr/local/sbin/qingzhang-update' \
+  'Environment=QINGZHANG_D1_DIR=/var/lib/qingzhang/v3/d1/miniflare-D1DatabaseObject' \
+  'ExecStart=/usr/bin/node --no-warnings /usr/local/lib/qingzhang-updater/server.mjs' \
   'Restart=on-failure' \
   'RestartSec=3' \
-  'NoNewPrivileges=true' \
   'PrivateTmp=true' \
   'ProtectHome=true' \
   'UMask=0077' \
@@ -71,14 +53,14 @@ printf '%s\n' \
 
 systemctl daemon-reload
 systemctl enable qingzhang-updater.service
-systemctl restart qingzhang-updater.service
 systemctl restart qingzhang.service
+systemctl restart qingzhang-updater.service
 
+database_file="$(find /var/lib/qingzhang/v3/d1/miniflare-D1DatabaseObject -maxdepth 1 -type f -name '*.sqlite' ! -name 'metadata.sqlite' -print -quit)"
 updater_ready='false'
 for _ in {1..10}; do
-  if curl --fail --silent --show-error --connect-timeout 1 --max-time 2 \
-    --header "Authorization: Bearer $update_token" \
-    "http://$UPDATE_HOST:8871/status" >/dev/null; then
+  heartbeat="$(sqlite3 "$database_file" "SELECT heartbeat_at FROM update_state WHERE id = 1" 2>/dev/null || true)"
+  if [[ -n "$heartbeat" ]]; then
     updater_ready='true'
     break
   fi
@@ -88,5 +70,13 @@ if [[ "$updater_ready" != 'true' ]]; then
   echo 'Updater service did not become ready' >&2
   exit 1
 fi
+
+legacy_host="$(sed -n 's/^QINGZHANG_UPDATE_HOST=//p' /etc/qingzhang-updater.env 2>/dev/null | head -n 1)"
+if [[ -n "$legacy_host" ]]; then
+  /usr/sbin/iptables -D INPUT -p tcp -s "$legacy_host" -d "$legacy_host" --dport 8871 -j ACCEPT 2>/dev/null || true
+fi
+/usr/sbin/iptables -D INPUT -p tcp --dport 8871 -j DROP 2>/dev/null || true
+/usr/sbin/ip address del 10.254.254.1/32 dev lo 2>/dev/null || true
+rm -f /etc/qingzhang-updater.env /etc/qingzhang-worker.env /usr/local/sbin/qingzhang-update-firewall
 
 echo 'Qingzhang online updater installed'
