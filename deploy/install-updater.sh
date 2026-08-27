@@ -11,6 +11,7 @@ readonly UPDATER_UNIT='/etc/systemd/system/qingzhang-updater.service'
 readonly APP_DROPIN_DIR='/etc/systemd/system/qingzhang.service.d'
 readonly APP_DROPIN="$APP_DROPIN_DIR/online-update.conf"
 readonly SUDOERS_FILE='/etc/sudoers.d/qingzhang-updater'
+readonly WORKER_ENV_FILE='/etc/qingzhang-worker.env'
 
 install -d -m 0755 /usr/local/lib/qingzhang-updater
 install -m 0755 "$SOURCE_DIR/qingzhang-updater.mjs" /usr/local/lib/qingzhang-updater/server.mjs
@@ -20,11 +21,15 @@ printf '%s\n' 'qingzhang ALL=(root) NOPASSWD: /usr/local/sbin/qingzhang-update' 
 chmod 0440 "$SUDOERS_FILE"
 visudo -cf "$SUDOERS_FILE" >/dev/null
 
+printf '%s\n' 'QINGZHANG_UPDATER_ENABLED=true' > "$WORKER_ENV_FILE"
+chown root:qingzhang "$WORKER_ENV_FILE"
+chmod 0640 "$WORKER_ENV_FILE"
+
 install -d -m 0755 "$APP_DROPIN_DIR"
 printf '%s\n' \
   '[Service]' \
   'ExecStart=' \
-  'ExecStart=/opt/qingzhang/node_modules/.bin/wrangler dev --config /opt/qingzhang/dist/server/wrangler.json --ip 0.0.0.0 --port 8866 --persist-to /var/lib/qingzhang --show-interactive-dev-session=false' \
+  'ExecStart=/opt/qingzhang/node_modules/.bin/wrangler dev --config /opt/qingzhang/dist/server/wrangler.json --ip 0.0.0.0 --port 8866 --persist-to /var/lib/qingzhang --show-interactive-dev-session=false --env-file /etc/qingzhang-worker.env' \
   > "$APP_DROPIN"
 
 printf '%s\n' \
@@ -41,7 +46,7 @@ printf '%s\n' \
   'Environment=QINGZHANG_UPDATE_SCRIPT=/usr/local/sbin/qingzhang-update' \
   'Environment=QINGZHANG_D1_DIR=/var/lib/qingzhang/v3/d1/miniflare-D1DatabaseObject' \
   'ExecStart=/usr/bin/node --no-warnings /usr/local/lib/qingzhang-updater/server.mjs' \
-  'Restart=on-failure' \
+  'Restart=always' \
   'RestartSec=3' \
   'PrivateTmp=true' \
   'ProtectHome=true' \
@@ -56,17 +61,7 @@ systemctl enable qingzhang-updater.service
 systemctl restart qingzhang.service
 systemctl restart qingzhang-updater.service
 
-database_file="$(find /var/lib/qingzhang/v3/d1/miniflare-D1DatabaseObject -maxdepth 1 -type f -name '*.sqlite' ! -name 'metadata.sqlite' -print -quit)"
-updater_ready='false'
-for _ in {1..10}; do
-  heartbeat="$(sqlite3 "$database_file" "SELECT heartbeat_at FROM update_state WHERE id = 1" 2>/dev/null || true)"
-  if [[ -n "$heartbeat" ]]; then
-    updater_ready='true'
-    break
-  fi
-  sleep 1
-done
-if [[ "$updater_ready" != 'true' ]]; then
+if ! systemctl is-active --quiet qingzhang-updater.service; then
   echo 'Updater service did not become ready' >&2
   exit 1
 fi
@@ -77,6 +72,6 @@ if [[ -n "$legacy_host" ]]; then
 fi
 /usr/sbin/iptables -D INPUT -p tcp --dport 8871 -j DROP 2>/dev/null || true
 /usr/sbin/ip address del 10.254.254.1/32 dev lo 2>/dev/null || true
-rm -f /etc/qingzhang-updater.env /etc/qingzhang-worker.env /usr/local/sbin/qingzhang-update-firewall
+rm -f /etc/qingzhang-updater.env /usr/local/sbin/qingzhang-update-firewall
 
 echo 'Qingzhang online updater installed'

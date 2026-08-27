@@ -1,5 +1,6 @@
+import { env } from 'cloudflare:workers';
 import { requireAuth, verifySameOrigin } from '@/lib/auth';
-import { ensureDatabase, getD1 } from '@/lib/database';
+import { ensureDatabase, getD1, retryDatabase } from '@/lib/database';
 import { jsonError } from '@/lib/http';
 
 type UpdateRow = {
@@ -14,10 +15,9 @@ type UpdateRow = {
 
 async function status() {
   await ensureDatabase();
-  const row = await getD1().prepare(`SELECT state, message, current_version AS currentVersion, requested_at AS requestedAt, started_at AS startedAt, finished_at AS finishedAt, heartbeat_at AS heartbeatAt FROM update_state WHERE id = 1`).first<UpdateRow>();
-  const heartbeat = row?.heartbeatAt ? new Date(row.heartbeatAt).getTime() : 0;
+  const row = await retryDatabase(() => getD1().prepare(`SELECT state, message, current_version AS currentVersion, requested_at AS requestedAt, started_at AS startedAt, finished_at AS finishedAt, heartbeat_at AS heartbeatAt FROM update_state WHERE id = 1`).first<UpdateRow>());
   return {
-    supported: heartbeat > Date.now() - 15_000,
+    supported: env.QINGZHANG_UPDATER_ENABLED === 'true',
     state: row?.state || 'idle',
     message: row?.message || '当前部署环境未配置自动更新器',
     currentVersion: row?.currentVersion || null,

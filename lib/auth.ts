@@ -1,4 +1,4 @@
-import { ensureDatabase, getD1 } from '@/lib/database';
+import { ensureDatabase, getD1, retryDatabase } from '@/lib/database';
 import { PASSWORD_ITERATIONS } from '@/lib/constants';
 const COOKIE_NAME = 'lightledger_session'; const SESSION_MS = 30 * 86400000;
 function bytesToBase64(bytes: Uint8Array) { let binary = ''; bytes.forEach((byte) => { binary += String.fromCharCode(byte); }); return btoa(binary); }
@@ -7,7 +7,7 @@ function base64Url(bytes: Uint8Array) { return bytesToBase64(bytes).replaceAll('
 async function passwordHash(password: string, salt: string, iterations: number) { const material = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']); const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: fromBase64(salt), iterations }, material, 256); return bytesToBase64(new Uint8Array(bits)); }
 async function hmac(value: string, secret: string) { const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']); return base64Url(new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value)))); }
 function constantTimeEqual(a: string, b: string) { if (a.length !== b.length) return false; let mismatch = 0; for (let i = 0; i < a.length; i += 1) mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i); return mismatch === 0; }
-async function authConfig() { await ensureDatabase(); return getD1().prepare('SELECT password_salt, password_hash, password_iterations, session_secret, session_version FROM auth_config WHERE id = 1').first<{ password_salt: string; password_hash: string; password_iterations: number; session_secret: string; session_version: number }>(); }
+async function authConfig() { await ensureDatabase(); return retryDatabase(() => getD1().prepare('SELECT password_salt, password_hash, password_iterations, session_secret, session_version FROM auth_config WHERE id = 1').first<{ password_salt: string; password_hash: string; password_iterations: number; session_secret: string; session_version: number }>()); }
 export async function verifyPassword(password: string) { const config = await authConfig(); return !!config && constantTimeEqual(await passwordHash(password, config.password_salt, config.password_iterations), config.password_hash); }
 function secureCookieAttribute(request: Request) { return new URL(request.url).protocol === 'https:' ? '; Secure' : ''; }
 export async function createSessionCookie(request: Request) { const config = await authConfig(); if (!config) throw new Error('认证尚未初始化'); const expires = Date.now() + SESSION_MS; const payload = `${config.session_version}.${expires}.${crypto.randomUUID()}`; const signature = await hmac(payload, config.session_secret); return `${COOKIE_NAME}=${payload}.${signature}; Path=/; Max-Age=${SESSION_MS / 1000}; HttpOnly; SameSite=Lax${secureCookieAttribute(request)}`; }

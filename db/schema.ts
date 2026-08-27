@@ -12,6 +12,10 @@ export const transactions = sqliteTable('transactions', {
   note: text('note'), createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(), deletedAt: text('deleted_at'),
 }, (table) => [index('idx_transactions_deleted_occurred').on(table.deletedAt, table.occurredAt), index('idx_transactions_category').on(table.categoryId), index('idx_transactions_type_occurred').on(table.type, table.occurredAt)]);
 
+export const transactionRequests = sqliteTable('transaction_requests', {
+  requestId: text('request_id').primaryKey(), transactionId: text('transaction_id').notNull().references(() => transactions.id, { onDelete: 'cascade' }), createdAt: text('created_at').notNull(),
+}, (table) => [index('idx_transaction_requests_transaction').on(table.transactionId)]);
+
 export const attachments = sqliteTable('attachments', {
   id: text('id').primaryKey(), transactionId: text('transaction_id').notNull().references(() => transactions.id, { onDelete: 'cascade' }), objectKey: text('object_key').notNull(), previewObjectKey: text('preview_object_key'),
   originalName: text('original_name').notNull(), contentType: text('content_type').notNull(), sizeBytes: integer('size_bytes').notNull(), createdAt: text('created_at').notNull(), deletedAt: text('deleted_at'),

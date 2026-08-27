@@ -111,4 +111,10 @@ if [[ "$healthy" != 'true' ]]; then
   exit 1
 fi
 
+# Refresh the root-owned updater components only after the new application is healthy.
+install -m 0755 "$APP_DIR/deploy/qingzhang-updater.mjs" /usr/local/lib/qingzhang-updater/server.mjs.next
+mv -- /usr/local/lib/qingzhang-updater/server.mjs.next /usr/local/lib/qingzhang-updater/server.mjs
+install -m 0755 "$APP_DIR/deploy/qingzhang-update.sh" /usr/local/sbin/qingzhang-update.next
+mv -- /usr/local/sbin/qingzhang-update.next /usr/local/sbin/qingzhang-update
+
 echo 'Qingzhang update completed successfully'

@@ -1,4 +1,4 @@
-import { requireAuth, verifySameOrigin } from '@/lib/auth'; import { MAX_ATTACHMENTS } from '@/lib/constants'; import { ensureDatabase, getD1, getFiles } from '@/lib/database'; import { validateFile } from '@/lib/files'; import { jsonError } from '@/lib/http';
+import { requireAuth, verifySameOrigin } from '@/lib/auth'; import { MAX_ATTACHMENTS } from '@/lib/constants'; import { ensureDatabase, getD1, getFiles, isDatabaseBusy, retryDatabase } from '@/lib/database'; import { validateFile } from '@/lib/files'; import { jsonError } from '@/lib/http';
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const unauthorized = await requireAuth(request); if (unauthorized) return unauthorized; if (!verifySameOrigin(request)) return jsonError('请求来源不可信', 403); await ensureDatabase(); const { id: transactionId } = await context.params;
   const transaction = await getD1().prepare('SELECT id FROM transactions WHERE id = ? AND deleted_at IS NULL').bind(transactionId).first(); if (!transaction) return jsonError('账单不存在', 404);
@@ -6,6 +6,13 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const form = await request.formData(); const file = form.get('file'); const preview = form.get('preview'); if (!(file instanceof File)) return jsonError('请选择文件'); const validationError = await validateFile(file); if (validationError) return jsonError(validationError);
   if (preview instanceof File && (preview.type !== 'image/webp' || preview.size > 2 * 1024 * 1024)) return jsonError('HEIC预览文件不正确');
   const attachmentId = crypto.randomUUID(); const extension = file.name.split('.').pop()?.toLowerCase() || 'bin'; const objectKey = `transactions/${transactionId}/${attachmentId}.${extension}`; const previewKey = preview instanceof File ? `transactions/${transactionId}/${attachmentId}-preview.webp` : null;
-  await getFiles().put(objectKey, file.stream(), { httpMetadata: { contentType: file.type } }); if (preview instanceof File && previewKey) await getFiles().put(previewKey, preview.stream(), { httpMetadata: { contentType: 'image/webp' } });
-  const now = new Date().toISOString(); await getD1().prepare('INSERT INTO attachments (id, transaction_id, object_key, preview_object_key, original_name, content_type, size_bytes, created_at, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)').bind(attachmentId, transactionId, objectKey, previewKey, file.name.slice(0, 180), file.type, file.size, now).run(); return Response.json({ id: attachmentId }, { status: 201 });
+  const files = getFiles();
+  try {
+    await files.put(objectKey, file.stream(), { httpMetadata: { contentType: file.type } }); if (preview instanceof File && previewKey) await files.put(previewKey, preview.stream(), { httpMetadata: { contentType: 'image/webp' } });
+    const now = new Date().toISOString(); await retryDatabase(() => getD1().prepare('INSERT INTO attachments (id, transaction_id, object_key, preview_object_key, original_name, content_type, size_bytes, created_at, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)').bind(attachmentId, transactionId, objectKey, previewKey, file.name.slice(0, 180), file.type, file.size, now).run()); return Response.json({ id: attachmentId }, { status: 201 });
+  } catch (error) {
+    await Promise.allSettled([files.delete(objectKey), ...(previewKey ? [files.delete(previewKey)] : [])]);
+    if (isDatabaseBusy(error)) return Response.json({ error: '数据库暂时繁忙，请重试附件', code: 'DATABASE_BUSY', retryable: true }, { status: 503 });
+    console.error('Attachment upload failed', error); return jsonError('附件上传失败，请重试', 500);
+  }
 }
