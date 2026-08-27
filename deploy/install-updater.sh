@@ -69,8 +69,19 @@ systemctl daemon-reload
 systemctl enable --now qingzhang-updater.service
 systemctl restart qingzhang.service
 
-curl --fail --silent --show-error \
-  --header "Authorization: Bearer $update_token" \
-  http://127.0.0.1:8871/status >/dev/null
+updater_ready='false'
+for _ in {1..10}; do
+  if curl --fail --silent --show-error \
+    --header "Authorization: Bearer $update_token" \
+    http://127.0.0.1:8871/status >/dev/null; then
+    updater_ready='true'
+    break
+  fi
+  sleep 1
+done
+if [[ "$updater_ready" != 'true' ]]; then
+  echo 'Updater service did not become ready' >&2
+  exit 1
+fi
 
 echo 'Qingzhang online updater installed'
