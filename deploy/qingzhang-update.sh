@@ -68,6 +68,9 @@ if ! mv -- "$stage_dir" "$APP_DIR"; then
   exit 1
 fi
 stage_dir=''
+install -d -o qingzhang -g qingzhang -m 0755 \
+  "$APP_DIR/dist/server/.wrangler" \
+  "$APP_DIR/node_modules/.mf"
 
 rollback() {
   local failed_dir="/opt/qingzhang.failed.$(date +%s)"
