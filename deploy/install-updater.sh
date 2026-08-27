@@ -17,6 +17,7 @@ readonly UPDATE_HOST="${QINGZHANG_UPDATE_HOST_OVERRIDE:-10.254.254.1}"
 install -d -m 0755 /usr/local/lib/qingzhang-updater
 install -m 0755 "$SOURCE_DIR/qingzhang-updater.mjs" /usr/local/lib/qingzhang-updater/server.mjs
 install -m 0755 "$SOURCE_DIR/qingzhang-update.sh" /usr/local/sbin/qingzhang-update
+install -m 0755 "$SOURCE_DIR/qingzhang-update-firewall.sh" /usr/local/sbin/qingzhang-update-firewall
 
 if [[ -f "$TOKEN_FILE" ]]; then
   update_token="$(sed -n 's/^QINGZHANG_UPDATE_TOKEN=//p' "$TOKEN_FILE" | head -n 1)"
@@ -54,6 +55,7 @@ printf '%s\n' \
   'User=root' \
   'Group=root' \
   'EnvironmentFile=/etc/qingzhang-updater.env' \
+  'ExecStartPre=/usr/local/sbin/qingzhang-update-firewall' \
   'ExecStartPre=-/usr/sbin/ip address add 10.254.254.1/32 dev lo' \
   'ExecStart=/usr/bin/node /usr/local/lib/qingzhang-updater/server.mjs' \
   'Restart=on-failure' \
