@@ -21,5 +21,5 @@ export async function POST(request: Request) {
   }
   await db.prepare('DELETE FROM login_attempts WHERE source_hash = ?').bind(key).run();
   await purgeExpiredTrash();
-  return new Response(JSON.stringify({ ok: true }), { headers: { 'content-type': 'application/json; charset=utf-8', 'set-cookie': await createSessionCookie() } });
+  return new Response(JSON.stringify({ ok: true }), { headers: { 'content-type': 'application/json; charset=utf-8', 'set-cookie': await createSessionCookie(request) } });
 }

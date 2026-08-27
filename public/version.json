@@ -1,5 +1,5 @@
 {
-  "version": "1.1.0",
+  "version": "1.1.1",
   "publishedAt": "2026-08-27",
-  "summary": "新增 GitHub 在线版本检查与持续集成验证。"
+  "summary": "新增端口 8866 的自托管兼容支持。"
 }

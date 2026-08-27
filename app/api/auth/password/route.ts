@@ -6,5 +6,5 @@ export async function POST(request: Request) {
   const body = await readJson(request) as { currentPassword?: string; nextPassword?: string } | null;
   if (!body?.currentPassword || !body.nextPassword || body.nextPassword.length < 10 || body.nextPassword.length > 128) return jsonError('新密码至少10位，最多128位');
   if (!await changePassword(body.currentPassword, body.nextPassword)) return jsonError('当前密码不正确', 401);
-  return new Response(JSON.stringify({ ok: true }), { headers: { 'content-type': 'application/json; charset=utf-8', 'set-cookie': clearSessionCookie() } });
+  return new Response(JSON.stringify({ ok: true }), { headers: { 'content-type': 'application/json; charset=utf-8', 'set-cookie': clearSessionCookie(request) } });
 }
