@@ -4,6 +4,11 @@ import { jsonError } from '@/lib/http';
 
 const REQUEST_TIMEOUT_MS = 5_000;
 
+function validIpv4(hostname: string) {
+  const parts = hostname.split('.');
+  return parts.length === 4 && parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255);
+}
+
 function updaterConfig() {
   const serviceUrl = env.QINGZHANG_UPDATE_URL?.trim();
   const token = env.QINGZHANG_UPDATE_TOKEN?.trim();
@@ -11,9 +16,10 @@ function updaterConfig() {
 
   try {
     const url = new URL(serviceUrl);
-    const privateHost = url.hostname === '10.254.254.1'
-      || ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname);
-    if (url.protocol !== 'http:' || !privateHost) return null;
+    const allowedHost = validIpv4(url.hostname)
+      || ['localhost', '[::1]'].includes(url.hostname);
+    if (url.protocol !== 'http:' || !allowedHost || url.port !== '8871') return null;
+    if (url.username || url.password || url.search || url.hash) return null;
     return { url, token };
   } catch {
     return null;

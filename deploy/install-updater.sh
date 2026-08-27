@@ -12,7 +12,7 @@ readonly WORKER_ENV_FILE='/etc/qingzhang-worker.env'
 readonly UPDATER_UNIT='/etc/systemd/system/qingzhang-updater.service'
 readonly APP_DROPIN_DIR='/etc/systemd/system/qingzhang.service.d'
 readonly APP_DROPIN="$APP_DROPIN_DIR/online-update.conf"
-readonly UPDATE_HOST='10.254.254.1'
+readonly UPDATE_HOST="${QINGZHANG_UPDATE_HOST_OVERRIDE:-10.254.254.1}"
 
 install -d -m 0755 /usr/local/lib/qingzhang-updater
 install -m 0755 "$SOURCE_DIR/qingzhang-updater.mjs" /usr/local/lib/qingzhang-updater/server.mjs
