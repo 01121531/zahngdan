@@ -7,6 +7,7 @@ readonly RELEASES_DIR='/opt/qingzhang-releases'
 readonly ARCHIVE_URL='https://github.com/01121531/zahngdan/archive/refs/heads/main.tar.gz'
 readonly SERVICE='qingzhang.service'
 readonly HEALTH_URL='http://127.0.0.1:8866/login'
+readonly STATIC_ASSET_RETENTION_DAYS='30'
 
 stage_dir=''
 
@@ -36,7 +37,7 @@ if ! flock -n 9; then
   exit 75
 fi
 
-for command in curl tar npm runuser systemctl; do
+for command in curl tar npm runuser systemctl cp find; do
   command -v "$command" >/dev/null
 done
 
@@ -54,6 +55,16 @@ runuser -u qingzhang -- env HOME=/var/lib/qingzhang npm --prefix "$stage_dir" ru
 runuser -u qingzhang -- env HOME=/var/lib/qingzhang npm --prefix "$stage_dir" run typecheck
 runuser -u qingzhang -- env HOME=/var/lib/qingzhang npm --prefix "$stage_dir" test -- --run
 runuser -u qingzhang -- env HOME=/var/lib/qingzhang npm --prefix "$stage_dir" run build
+
+# Keep recently deployed content-hashed assets so tabs opened before an update
+# can finish client-side navigation without requesting files that just vanished.
+current_static="$APP_DIR/dist/client/_next/static"
+next_static="$stage_dir/dist/client/_next/static"
+if [[ -d "$current_static" && -d "$next_static" ]]; then
+  cp --archive --no-clobber "$current_static"/. "$next_static"/
+  find "$next_static" -type f -mtime +"$STATIC_ASSET_RETENTION_DAYS" -delete
+  find "$next_static" -depth -type d -empty -delete
+fi
 
 if [[ -e "$PREVIOUS_DIR" ]]; then
   [[ "$(readlink -f "$PREVIOUS_DIR")" == "$PREVIOUS_DIR" ]] || { echo 'Unsafe previous release path' >&2; exit 1; }
