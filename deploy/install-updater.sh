@@ -12,6 +12,7 @@ readonly WORKER_ENV_FILE='/etc/qingzhang-worker.env'
 readonly UPDATER_UNIT='/etc/systemd/system/qingzhang-updater.service'
 readonly APP_DROPIN_DIR='/etc/systemd/system/qingzhang.service.d'
 readonly APP_DROPIN="$APP_DROPIN_DIR/online-update.conf"
+readonly UPDATE_HOST='10.254.254.1'
 
 install -d -m 0755 /usr/local/lib/qingzhang-updater
 install -m 0755 "$SOURCE_DIR/qingzhang-updater.mjs" /usr/local/lib/qingzhang-updater/server.mjs
@@ -28,8 +29,8 @@ if [[ ${#update_token} -lt 32 ]]; then
 fi
 
 umask 0077
-printf 'QINGZHANG_UPDATE_TOKEN=%s\nQINGZHANG_UPDATE_SCRIPT=/usr/local/sbin/qingzhang-update\nQINGZHANG_UPDATE_STATUS=/var/lib/qingzhang/update-status.json\n' "$update_token" > "$TOKEN_FILE"
-printf 'QINGZHANG_UPDATE_URL=http://127.0.0.1:8871\nQINGZHANG_UPDATE_TOKEN=%s\n' "$update_token" > "$WORKER_ENV_FILE"
+printf 'QINGZHANG_UPDATE_TOKEN=%s\nQINGZHANG_UPDATE_HOST=%s\nQINGZHANG_UPDATE_SCRIPT=/usr/local/sbin/qingzhang-update\nQINGZHANG_UPDATE_STATUS=/var/lib/qingzhang/update-status.json\n' "$update_token" "$UPDATE_HOST" > "$TOKEN_FILE"
+printf 'QINGZHANG_UPDATE_URL=http://%s:8871\nQINGZHANG_UPDATE_TOKEN=%s\n' "$UPDATE_HOST" "$update_token" > "$WORKER_ENV_FILE"
 chown root:root "$TOKEN_FILE"
 chown root:qingzhang "$WORKER_ENV_FILE"
 chmod 0600 "$TOKEN_FILE"
@@ -53,6 +54,7 @@ printf '%s\n' \
   'User=root' \
   'Group=root' \
   'EnvironmentFile=/etc/qingzhang-updater.env' \
+  'ExecStartPre=-/usr/sbin/ip address add 10.254.254.1/32 dev lo' \
   'ExecStart=/usr/bin/node /usr/local/lib/qingzhang-updater/server.mjs' \
   'Restart=on-failure' \
   'RestartSec=3' \
@@ -73,7 +75,7 @@ updater_ready='false'
 for _ in {1..10}; do
   if curl --fail --silent --show-error \
     --header "Authorization: Bearer $update_token" \
-    http://127.0.0.1:8871/status >/dev/null; then
+    "http://$UPDATE_HOST:8871/status" >/dev/null; then
     updater_ready='true'
     break
   fi

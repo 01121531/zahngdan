@@ -11,7 +11,9 @@ function updaterConfig() {
 
   try {
     const url = new URL(serviceUrl);
-    if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)) return null;
+    const privateHost = url.hostname === '10.254.254.1'
+      || ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname);
+    if (url.protocol !== 'http:' || !privateHost) return null;
     return { url, token };
   } catch {
     return null;

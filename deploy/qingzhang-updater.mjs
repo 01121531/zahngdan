@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import { timingSafeEqual } from 'node:crypto';
 import { readFile, rename, writeFile } from 'node:fs/promises';
 
-const host = '127.0.0.1';
+const host = process.env.QINGZHANG_UPDATE_HOST || '127.0.0.1';
 const port = Number.parseInt(process.env.QINGZHANG_UPDATE_PORT || '8871', 10);
 const token = process.env.QINGZHANG_UPDATE_TOKEN || '';
 const script = process.env.QINGZHANG_UPDATE_SCRIPT || '/usr/local/sbin/qingzhang-update';
@@ -89,7 +89,8 @@ async function startUpdate() {
 
 const server = createServer(async (request, response) => {
   const remote = request.socket.remoteAddress || '';
-  if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(remote) || !authorized(request)) {
+  const localAddresses = ['127.0.0.1', '::1', '::ffff:127.0.0.1', host, `::ffff:${host}`];
+  if (!localAddresses.includes(remote) || !authorized(request)) {
     send(response, 403, { error: 'forbidden' });
     return;
   }
