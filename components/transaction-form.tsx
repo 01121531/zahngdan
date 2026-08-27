@@ -17,6 +17,7 @@ const accept = '.jpg,.jpeg,.png,.webp,.gif,.heic,.heif,.pdf,.doc,.docx,.xls,.xls
 
 export function TransactionForm({ transactionId }: { transactionId?: string }) {
   const editing = !!transactionId;
+  const formRef = useRef<HTMLFormElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [requestId] = useState(createSubmissionId);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -133,8 +134,9 @@ export function TransactionForm({ transactionId }: { transactionId?: string }) {
     throw new Error('账单没有保存成功');
   };
 
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault(); setNotice(null);
+  const submit = async () => {
+    if (!savedId && !formRef.current?.reportValidity()) return;
+    setNotice(null);
     if (savedId) { await uploadWaitingFiles(savedId); return; }
     setPhase('saving');
     try {
@@ -156,7 +158,7 @@ export function TransactionForm({ transactionId }: { transactionId?: string }) {
   const statusText = phase === 'saving' ? '正在保存账单…' : phase === 'uploading' ? `账单已保存，正在上传附件 ${uploadProgress.current}/${uploadProgress.total}` : phase === 'saved' ? '全部保存成功，正在打开账单…' : phase === 'partial' ? '账单已保存，部分附件需要重试' : '';
 
   return <AppShell title={editing ? '编辑账单' : '记一笔'} eyebrow={editing ? '修改账单信息和附件' : '把这一笔清楚地记下来'} actions={<a href={transactionId ? `/transactions/${transactionId}` : '/transactions'} className={buttonClass({ variant: 'secondary' })}><ArrowLeft size={17}/>返回</a>}>
-    {loading ? <div className="grid min-h-[360px] place-items-center"><LoaderCircle className="animate-spin text-[var(--brand)]"/></div> : <form onSubmit={submit} className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(340px,.7fr)]">
+    {loading ? <div className="grid min-h-[360px] place-items-center"><LoaderCircle className="animate-spin text-[var(--brand)]"/></div> : <form ref={formRef} onSubmit={(event) => event.preventDefault()} className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(340px,.7fr)]">
       <Card className="p-5 sm:p-7"><fieldset disabled={formLocked}>
         <div className="grid grid-cols-2 rounded-2xl bg-[var(--page)] p-1.5"><button type="button" onClick={() => switchType('expense')} className={`min-h-11 rounded-xl text-sm font-semibold ${form.type === 'expense' ? 'bg-[var(--surface)] shadow-sm text-[var(--expense)]' : 'text-[var(--muted)]'}`}>支出</button><button type="button" onClick={() => switchType('income')} className={`min-h-11 rounded-xl text-sm font-semibold ${form.type === 'income' ? 'bg-[var(--surface)] shadow-sm text-[var(--income)]' : 'text-[var(--muted)]'}`}>收入</button></div>
         <div className="mt-6 grid gap-5 sm:grid-cols-2"><Field label="金额"><div className="relative"><span className="absolute left-3.5 top-3 text-lg font-semibold text-[var(--muted)]">¥</span><input autoFocus inputMode="decimal" required className={`${inputClass} pl-9 font-mono text-lg font-semibold`} value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} placeholder="0.00" pattern="\d+(\.\d{1,2})?"/></div></Field><Field label="标题 / 商户"><input required maxLength={80} className={inputClass} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="例如：城市超市"/></Field><Field label="分类"><select required className={inputClass} value={form.categoryId} onChange={(event) => setForm({ ...form, categoryId: event.target.value })}><option value="">选择分类</option>{matching.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field><Field label="支付方式"><select className={inputClass} value={form.paymentMethod} onChange={(event) => setForm({ ...form, paymentMethod: event.target.value })}>{PAYMENT_METHODS.map((item) => <option key={item}>{item}</option>)}</select></Field><Field label="发生时间"><input required type="datetime-local" className={inputClass} value={form.occurredAt} onChange={(event) => setForm({ ...form, occurredAt: event.target.value })}/></Field><Field label="备注" className="sm:col-span-2"><textarea rows={4} maxLength={500} className={`${inputClass} resize-y py-3`} value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} placeholder="可选，写下需要补充的信息"/><span className="mt-1 block text-right text-xs text-[var(--muted)]">{form.note.length}/500</span></Field></div>
@@ -165,8 +167,8 @@ export function TransactionForm({ transactionId }: { transactionId?: string }) {
         <div className="mt-4 space-y-2">{existing.map((item) => <FileRow key={item.id} name={item.originalName} size={item.sizeBytes} type={item.contentType} action={<Button type="button" size="icon" variant="ghost" disabled={formLocked} aria-label={`删除${item.originalName}`} onClick={() => deleteExisting(item.id)}><Trash2 size={16}/></Button>}/>)}{pending.map((item) => <FileRow key={item.id} name={item.file.name} size={item.file.size} type={item.file.type} status={item.status} error={item.error} action={item.status === 'done' ? <CheckCircle2 size={18} className="text-[var(--income)]"/> : <Button type="button" size="icon" variant="ghost" disabled={busy} aria-label={`移除${item.file.name}`} onClick={() => setPending((items) => items.filter((entry) => entry.id !== item.id))}><X size={16}/></Button>}/>)}</div>
         {statusText ? <p aria-live="polite" className="mt-4 flex items-center gap-2 text-sm font-medium text-[var(--brand)]">{busy ? <LoaderCircle size={16} className="animate-spin"/> : <CheckCircle2 size={16}/>} {statusText}</p> : null}
         {notice ? <p role="alert" className={`mt-3 rounded-xl px-3 py-2 text-sm ${notice.tone === 'success' ? 'bg-[var(--brand-soft)] text-[var(--income)]' : 'bg-[var(--danger-soft)] text-[var(--danger)]'}`}>{notice.text}</p> : null}
-        <Button type="submit" disabled={busy} className="mt-6 w-full">{busy ? <><LoaderCircle size={17} className="animate-spin"/>{phase === 'saving' ? '正在保存账单' : `正在上传 ${uploadProgress.current}/${uploadProgress.total}`}</> : savedId ? pending.some((item) => item.status !== 'done') ? '重试失败附件' : '查看已保存账单' : editing ? '保存修改' : '保存账单'}</Button>
-        {savedId ? <a href={`/transactions/${savedId}`} className="mt-3 flex min-h-11 items-center justify-center text-sm font-semibold text-[var(--brand)]">查看已保存账单</a> : <p className="mt-3 text-center text-xs text-[var(--muted)]">附件失败不会影响账单保存，可单独重试。</p>}
+        <Button type="button" disabled={busy} className="mt-6 w-full" onClick={() => void submit()}>{busy ? <><LoaderCircle size={17} className="animate-spin"/>{phase === 'saving' ? '正在保存账单' : `正在上传 ${uploadProgress.current}/${uploadProgress.total}`}</> : savedId ? pending.some((item) => item.status !== 'done') ? '重试失败附件' : '查看已保存账单' : editing ? '保存修改' : '保存账单'}</Button>
+        {savedId ? <a href={`/transactions/${savedId}`} className="mt-3 flex min-h-11 items-center justify-center text-sm font-semibold text-[var(--brand)]">查看已保存账单</a> : <p className="mt-3 text-center text-xs text-[var(--muted)]">选择附件只会加入待上传列表，点击保存账单后才会上传。</p>}
       </Card>
     </form>}
   </AppShell>;
@@ -174,5 +176,5 @@ export function TransactionForm({ transactionId }: { transactionId?: string }) {
 
 function FileRow({ name, size, type, status, error, action }: { name: string; size: number; type: string; status?: Pending['status']; error?: string; action: React.ReactNode }) {
   const Icon = type.startsWith('image/') ? FileImage : FileIcon;
-  return <div className="flex items-center gap-3 rounded-xl border border-[var(--line)] p-3"><span className="grid size-9 shrink-0 place-items-center rounded-lg bg-[var(--page)] text-[var(--muted)]"><Icon size={17}/></span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{name}</span><span className={`mt-0.5 block text-xs ${status === 'error' ? 'text-[var(--danger)]' : 'text-[var(--muted)]'}`}>{error || (status === 'uploading' ? '正在上传…' : status === 'done' ? '上传完成' : fileSize(size))}</span></span>{status === 'uploading' ? <LoaderCircle size={18} className="animate-spin text-[var(--brand)]"/> : action}</div>;
+  return <div className="flex items-center gap-3 rounded-xl border border-[var(--line)] p-3"><span className="grid size-9 shrink-0 place-items-center rounded-lg bg-[var(--page)] text-[var(--muted)]"><Icon size={17}/></span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{name}</span><span className={`mt-0.5 block text-xs ${status === 'error' ? 'text-[var(--danger)]' : 'text-[var(--muted)]'}`}>{error || (status === 'uploading' ? '正在上传…' : status === 'done' ? '上传完成' : status === 'ready' ? `等待点击保存 · ${fileSize(size)}` : fileSize(size))}</span></span>{status === 'uploading' ? <LoaderCircle size={18} className="animate-spin text-[var(--brand)]"/> : action}</div>;
 }
