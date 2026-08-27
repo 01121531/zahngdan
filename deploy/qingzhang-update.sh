@@ -40,7 +40,7 @@ for command in curl tar npm runuser systemctl; do
   command -v "$command" >/dev/null
 done
 
-mkdir -p "$RELEASES_DIR"
+install -d -o root -g qingzhang -m 0750 "$RELEASES_DIR"
 stage_dir="$(mktemp -d "$RELEASES_DIR/staging.XXXXXX")"
 archive="$stage_dir/source.tar.gz"
 
