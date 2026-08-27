@@ -68,12 +68,13 @@ printf '%s\n' \
   > "$UPDATER_UNIT"
 
 systemctl daemon-reload
-systemctl enable --now qingzhang-updater.service
+systemctl enable qingzhang-updater.service
+systemctl restart qingzhang-updater.service
 systemctl restart qingzhang.service
 
 updater_ready='false'
 for _ in {1..10}; do
-  if curl --fail --silent --show-error \
+  if curl --fail --silent --show-error --connect-timeout 1 --max-time 2 \
     --header "Authorization: Bearer $update_token" \
     "http://$UPDATE_HOST:8871/status" >/dev/null; then
     updater_ready='true'
